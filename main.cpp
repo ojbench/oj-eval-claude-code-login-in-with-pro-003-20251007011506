@@ -43,59 +43,61 @@ private:
     vector<string> problemList;
     vector<pair<string, int>> lastRanking;
 
+    struct TeamRankInfo {
+        string name;
+        int solved;
+        int penalty;
+        vector<int> times;
+    };
+
+    TeamRankInfo getTeamRankInfo(const string& teamName) {
+        TeamRankInfo info;
+        info.name = teamName;
+        info.solved = 0;
+        info.penalty = 0;
+
+        const Team& t = teams[teamName];
+        for (const auto& prob : problemList) {
+            if (t.problems.count(prob)) {
+                const ProblemStatus& ps = t.problems.at(prob);
+                if (ps.solved && ps.wasSolvedBeforeFreeze) {
+                    info.solved++;
+                    int penalty = ps.solveTime + 20 * ps.wrongAttempts;
+                    info.penalty += penalty;
+                    info.times.push_back(ps.solveTime);
+                }
+            }
+        }
+        sort(info.times.rbegin(), info.times.rend());
+        return info;
+    }
+
     void calculateRanking(vector<pair<string, int>>& ranking) {
         ranking.clear();
+        vector<TeamRankInfo> infos;
+        infos.reserve(teamNames.size());
+
         for (const auto& name : teamNames) {
-            ranking.push_back({name, 0});
+            infos.push_back(getTeamRankInfo(name));
         }
 
-        sort(ranking.begin(), ranking.end(), [&](const pair<string, int>& a, const pair<string, int>& b) {
-            const Team& ta = teams[a.first];
-            const Team& tb = teams[b.first];
+        vector<int> indices(teamNames.size());
+        for (int i = 0; i < teamNames.size(); i++) {
+            indices[i] = i;
+        }
 
-            int solvedA = 0, penaltyA = 0;
-            vector<int> timesA;
+        sort(indices.begin(), indices.end(), [&](int a, int b) {
+            const TeamRankInfo& ta = infos[a];
+            const TeamRankInfo& tb = infos[b];
 
-            for (const auto& prob : problemList) {
-                if (ta.problems.count(prob)) {
-                    const ProblemStatus& ps = ta.problems.at(prob);
-                    if (ps.solved && ps.wasSolvedBeforeFreeze) {
-                        solvedA++;
-                        int penalty = ps.solveTime + 20 * ps.wrongAttempts;
-                        penaltyA += penalty;
-                        timesA.push_back(ps.solveTime);
-                    }
-                }
-            }
-
-            int solvedB = 0, penaltyB = 0;
-            vector<int> timesB;
-
-            for (const auto& prob : problemList) {
-                if (tb.problems.count(prob)) {
-                    const ProblemStatus& ps = tb.problems.at(prob);
-                    if (ps.solved && ps.wasSolvedBeforeFreeze) {
-                        solvedB++;
-                        int penalty = ps.solveTime + 20 * ps.wrongAttempts;
-                        penaltyB += penalty;
-                        timesB.push_back(ps.solveTime);
-                    }
-                }
-            }
-
-            if (solvedA != solvedB) return solvedA > solvedB;
-            if (penaltyA != penaltyB) return penaltyA < penaltyB;
-
-            sort(timesA.rbegin(), timesA.rend());
-            sort(timesB.rbegin(), timesB.rend());
-
-            if (timesA != timesB) return timesA < timesB;
-
-            return a.first < b.first;
+            if (ta.solved != tb.solved) return ta.solved > tb.solved;
+            if (ta.penalty != tb.penalty) return ta.penalty < tb.penalty;
+            if (ta.times != tb.times) return ta.times < tb.times;
+            return ta.name < tb.name;
         });
 
-        for (int i = 0; i < ranking.size(); i++) {
-            ranking[i].second = i + 1;
+        for (int i = 0; i < indices.size(); i++) {
+            ranking.push_back({teamNames[indices[i]], i + 1});
         }
     }
 
@@ -170,6 +172,7 @@ public:
             started = true;
             durationTime = duration;
             problemCount = problems;
+            problemList.reserve(problems);
             for (int i = 0; i < problems; i++) {
                 problemList.push_back(string(1, 'A' + i));
             }
@@ -291,16 +294,7 @@ public:
             }
 
             if (newRank < oldRank) {
-                int solved = 0, penalty = 0;
-                for (const auto& prob : problemList) {
-                    if (t.problems.count(prob)) {
-                        const ProblemStatus& pst = t.problems.at(prob);
-                        if (pst.solved && pst.wasSolvedBeforeFreeze) {
-                            solved++;
-                            penalty += pst.solveTime + 20 * pst.wrongAttempts;
-                        }
-                    }
-                }
+                TeamRankInfo info = getTeamRankInfo(lowestTeam);
 
                 string replacedTeam = "";
                 for (const auto& p : lastRanking) {
@@ -310,7 +304,7 @@ public:
                     }
                 }
 
-                cout << lowestTeam << " " << replacedTeam << " " << solved << " " << penalty << "\n";
+                cout << lowestTeam << " " << replacedTeam << " " << info.solved << " " << info.penalty << "\n";
             }
         }
 
@@ -362,13 +356,13 @@ public:
         cout << "[Info]Complete query submission.\n";
 
         const Team& t = teams[teamName];
-        Submission* found = nullptr;
+        const Submission* found = nullptr;
 
         for (int i = t.submissions.size() - 1; i >= 0; i--) {
             const Submission& sub = t.submissions[i];
             if ((problem == "ALL" || sub.problem == problem) &&
                 (status == "ALL" || sub.status == status)) {
-                found = const_cast<Submission*>(&sub);
+                found = &sub;
                 break;
             }
         }
@@ -387,6 +381,9 @@ public:
 };
 
 int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
     ICPCSystem system;
     string line;
 
