@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <map>
 #include <algorithm>
 #include <sstream>
@@ -26,7 +27,7 @@ struct ProblemStatus {
 
 struct Team {
     string name;
-    map<string, ProblemStatus> problems;
+    unordered_map<string, ProblemStatus> problems;
     vector<Submission> submissions;
 
     Team(string n = "") : name(n) {}
@@ -34,7 +35,7 @@ struct Team {
 
 class ICPCSystem {
 private:
-    map<string, Team> teams;
+    unordered_map<string, Team> teams;
     vector<string> teamNames;
     bool started;
     bool frozen;
@@ -58,8 +59,9 @@ private:
 
         const Team& t = teams[teamName];
         for (const auto& prob : problemList) {
-            if (t.problems.count(prob)) {
-                const ProblemStatus& ps = t.problems.at(prob);
+            auto it = t.problems.find(prob);
+            if (it != t.problems.end()) {
+                const ProblemStatus& ps = it->second;
                 if (ps.solved && ps.wasSolvedBeforeFreeze) {
                     info.solved++;
                     int penalty = ps.solveTime + 20 * ps.wrongAttempts;
@@ -74,6 +76,8 @@ private:
 
     void calculateRanking(vector<pair<string, int>>& ranking) {
         ranking.clear();
+        ranking.reserve(teamNames.size());
+
         vector<TeamRankInfo> infos;
         infos.reserve(teamNames.size());
 
@@ -110,8 +114,9 @@ private:
 
             int solved = 0, penalty = 0;
             for (const auto& prob : problemList) {
-                if (t.problems.count(prob)) {
-                    const ProblemStatus& ps = t.problems.at(prob);
+                auto it = t.problems.find(prob);
+                if (it != t.problems.end()) {
+                    const ProblemStatus& ps = it->second;
                     if (ps.solved && ps.wasSolvedBeforeFreeze) {
                         solved++;
                         penalty += ps.solveTime + 20 * ps.wrongAttempts;
@@ -123,8 +128,9 @@ private:
 
             for (const auto& prob : problemList) {
                 cout << " ";
-                if (t.problems.count(prob)) {
-                    const ProblemStatus& ps = t.problems.at(prob);
+                auto it = t.problems.find(prob);
+                if (it != t.problems.end()) {
+                    const ProblemStatus& ps = it->second;
                     if (ps.solved && ps.wasSolvedBeforeFreeze) {
                         cout << "+";
                         if (ps.wrongAttempts > 0) {
@@ -185,10 +191,6 @@ public:
         Team& team = teams[teamName];
         team.submissions.push_back({problem, status, time});
 
-        if (!team.problems.count(problem)) {
-            team.problems[problem] = ProblemStatus();
-        }
-
         ProblemStatus& ps = team.problems[problem];
 
         if (frozen && !ps.wasSolvedBeforeFreeze) {
@@ -240,22 +242,33 @@ public:
         flush(true);
         printScoreboard();
 
+        unordered_map<string, int> rankMap;
+        for (const auto& p : lastRanking) {
+            rankMap[p.first] = p.second;
+        }
+
         while (true) {
             bool hasFrozen = false;
             string lowestTeam = "";
             int lowestRank = 0;
 
-            for (const auto& p : lastRanking) {
-                const Team& t = teams[p.first];
+            for (const auto& name : teamNames) {
+                const Team& t = teams[name];
+                bool teamHasFrozen = false;
                 for (const auto& prob : problemList) {
-                    if (t.problems.count(prob) && !t.problems.at(prob).frozenSubs.empty()) {
-                        if (p.second > lowestRank) {
-                            lowestRank = p.second;
-                            lowestTeam = p.first;
-                        }
-                        hasFrozen = true;
+                    auto it = t.problems.find(prob);
+                    if (it != t.problems.end() && !it->second.frozenSubs.empty()) {
+                        teamHasFrozen = true;
                         break;
                     }
+                }
+                if (teamHasFrozen) {
+                    int rank = rankMap[name];
+                    if (rank > lowestRank) {
+                        lowestRank = rank;
+                        lowestTeam = name;
+                    }
+                    hasFrozen = true;
                 }
             }
 
@@ -264,7 +277,8 @@ public:
             Team& t = teams[lowestTeam];
             string unfreezeProb = "";
             for (const auto& prob : problemList) {
-                if (t.problems.count(prob) && !t.problems[prob].frozenSubs.empty()) {
+                auto it = t.problems.find(prob);
+                if (it != t.problems.end() && !it->second.frozenSubs.empty()) {
                     unfreezeProb = prob;
                     break;
                 }
@@ -284,14 +298,12 @@ public:
 
             int oldRank = lowestRank;
             calculateRanking(lastRanking);
-
-            int newRank = 0;
+            rankMap.clear();
             for (const auto& p : lastRanking) {
-                if (p.first == lowestTeam) {
-                    newRank = p.second;
-                    break;
-                }
+                rankMap[p.first] = p.second;
             }
+
+            int newRank = rankMap[lowestTeam];
 
             if (newRank < oldRank) {
                 TeamRankInfo info = getTeamRankInfo(lowestTeam);
